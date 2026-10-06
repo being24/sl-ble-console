@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SL 操作</title>
+<style>
+:root {
+  --bg: #f4f6f7; --panel: #ffffff; --fg: #1b2228; --muted: #5f6b76; --rule: #d6dce1;
+  --accent: #1f6fb2; --accent-fg: #ffffff; --ok: #1d7a46; --warn: #b4521f; --rx: #1b2228; --tx: #1f6fb2;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #12161a; --panel: #1b2127; --fg: #e3e8ec; --muted: #97a3ae; --rule: #2c353e;
+  --accent: #5aa9e6; --accent-fg: #0d1620; --ok: #5cc98a; --warn: #f0a25a; --rx: #e3e8ec; --tx: #5aa9e6;
+  color-scheme: dark } }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; }
+main { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  height: 100%; display: grid; grid-template-rows: auto auto auto 1fr auto; gap: 10px; }
+header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h1 { font-size: 1.15rem; margin: 0; flex: 1; }
+#state { font-size: .85rem; color: var(--muted); }
+#state.on { color: var(--ok); }
+button { font: inherit; border: 1px solid var(--rule); background: var(--panel); color: var(--fg);
+  border-radius: 8px; padding: 10px 12px; min-height: 44px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:disabled { opacity: .45; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cmds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cmds button b { display: block; font-family: var(--mono); }
+.cmds button span { font-size: .75rem; color: var(--muted); }
+#clock { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+#log { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px;
+  overflow-y: auto; font-family: var(--mono); font-size: .8rem; line-height: 1.45; min-height: 0; }
+#log div { white-space: pre-wrap; overflow-wrap: anywhere; }
+#log .tx { color: var(--tx); }
+#log .rx { color: var(--rx); }
+#log .sys { color: var(--muted); }
+#log .err { color: var(--warn); }
+form { display: flex; gap: 8px; }
+input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); padding: 10px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>SL 操作</h1>
+    <span id="state">未接続</span>
+    <button id="connect" class="primary" type="button">接続</button>
+  </header>
+  <div id="clock">日時は接続したときに自動で送ります</div>
+  <div class="cmds">
+    <button type="button" data-cmd="S" disabled><b>S</b><span>記録開始</span></button>
+    <button type="button" data-cmd="P" disabled><b>P</b><span>停止</span></button>
+    <button type="button" data-cmd="R" disabled><b>R</b><span>現在値</span></button>
+    <button type="button" data-cmd="Q" disabled><b>Q</b><span>状態</span></button>
+    <button type="button" data-cmd="I" disabled><b>I</b><span>識別情報</span></button>
+    <button type="button" data-cmd="T" disabled><b>T</b><span>日時を送る</span></button>
+  </div>
+  <div id="log" role="log" aria-live="polite"></div>
+  <form id="send">
+    <input id="line" autocomplete="off" autocapitalize="characters" placeholder="コマンド" disabled>
+    <button type="submit" disabled>送信</button>
+  </form>
+</main>
+<script>
+const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // phone -> board
+const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // board -> phone
+const $ = (id) => document.getElementById(id);
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+let device = null;
+let rx = null;
+let pending = "";
+
+function log(text, cls) {
+  const el = document.createElement("div");
+  const t = new Date().toLocaleTimeString("ja-JP", { hour12: false });
+  el.className = cls;
+  el.textContent = `${t} ${cls === "tx" ? "> " : ""}${text}`;
+  const box = $("log");
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.append(el);
+  while (box.childElementCount > 2000) box.firstElementChild.remove();
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+function setConnected(on) {
+  $("state").textContent = on ? `${device.name} に接続中` : "未接続";
+  $("state").classList.toggle("on", on);
+  $("connect").textContent = on ? "切断" : "接続";
+  document.querySelectorAll("[data-cmd], #send input, #send button").forEach((b) => (b.disabled = !on));
+}
+
+async function send(line) {
+  if (!rx) return;
+  try {
+    const data = enc.encode(line + "\n");
+    if (rx.writeValueWithoutResponse) await rx.writeValueWithoutResponse(data);
+    else await rx.writeValue(data);
+    log(line, "tx");
+  } catch (e) {
+    log(`送信できませんでした: ${e.message}`, "err");
+  }
+}
+
+function timeCommand() {
+  const now = new Date();
+  const offsetMin = -now.getTimezoneOffset();
+  return { line: `T ${Math.floor(now.getTime() / 1000)} ${offsetMin}`, now, offsetMin };
+}
+
+async function sendTime() {
+  const { line, now, offsetMin } = timeCommand();
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, "0");
+  const mm = String(Math.abs(offsetMin) % 60).padStart(2, "0");
+  $("clock").textContent = `送った日時: ${now.toLocaleString("ja-JP", { hour12: false })}（UTC${sign}${hh}:${mm}）`;
+  await send(line);
+}
+
+function onNotify(ev) {
+  pending += dec.decode(ev.target.value);
+  let i;
+  while ((i = pending.indexOf("\n")) >= 0) {
+    const line = pending.slice(0, i).replace(/\r$/, "");
+    pending = pending.slice(i + 1);
+    if (line !== "H|WAIT") log(line, line.startsWith("X:") ? "err" : "rx");
+  }
+}
+
+function onDisconnected() {
+  rx = null;
+  pending = "";
+  setConnected(false);
+  log("切断しました", "sys");
+}
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    log("このブラウザは Bluetooth に対応していません。Android の Chrome で開いてください", "err");
+    return;
+  }
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "SL" }], optionalServices: [NUS] });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    log(`${device.name} に接続しています`, "sys");
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS);
+    rx = await svc.getCharacteristic(NUS_RX);
+    const tx = await svc.getCharacteristic(NUS_TX);
+    tx.addEventListener("characteristicvaluechanged", onNotify);
+    await tx.startNotifications();
+    setConnected(true);
+    await sendTime();
+  } catch (e) {
+    if (e.name !== "NotFoundError") log(`接続できませんでした: ${e.message}`, "err");
+  }
+}
+
+$("connect").addEventListener("click", () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  else connect();
+});
+document.querySelectorAll("[data-cmd]").forEach((b) =>
+  b.addEventListener("click", () => (b.dataset.cmd === "T" ? sendTime() : send(b.dataset.cmd))));
+$("send").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const line = $("line").value.trim();
+  if (line) send(line);
+  $("line").value = "";
+});
+</script>
+</body>
+</html>
