@@ -7,13 +7,13 @@
 <style>
 :root {
   --bg: #f4f6f7; --panel: #ffffff; --fg: #1b2228; --muted: #5f6b76; --rule: #d6dce1;
-  --accent: #1f6fb2; --accent-fg: #ffffff; --ok: #1d7a46; --warn: #b4521f; --rx: #1b2228; --tx: #1f6fb2;
+  --accent: #1f6fb2; --accent-fg: #ffffff; --ok: #1d7a46; --warn: #b4521f; --rx: #1b2228; --tx: #1f6fb2; --b0: #1d7a46; --b1: #9a4d00; --b2: #6b3fa0; --b3: #a12d5a;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --sans: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root {
   --bg: #12161a; --panel: #1b2127; --fg: #e3e8ec; --muted: #97a3ae; --rule: #2c353e;
-  --accent: #5aa9e6; --accent-fg: #0d1620; --ok: #5cc98a; --warn: #f0a25a; --rx: #e3e8ec; --tx: #5aa9e6;
+  --accent: #5aa9e6; --accent-fg: #0d1620; --ok: #5cc98a; --warn: #f0a25a; --rx: #e3e8ec; --tx: #5aa9e6; --b0: #5cc98a; --b1: #f0a25a; --b2: #b89af0; --b3: #f07aa8;
   color-scheme: dark } }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -29,7 +29,7 @@ button { font: inherit; border: 1px solid var(--rule); background: var(--panel);
 button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 button:disabled { opacity: .45; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.cmds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cmds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .cmds button b { display: block; font-family: var(--mono); }
 .cmds button span { font-size: .75rem; color: var(--muted); }
 #clock { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -38,6 +38,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #log div { white-space: pre-wrap; overflow-wrap: anywhere; }
 #log .tx { color: var(--tx); }
 #log .rx { color: var(--rx); }
+#log .b0 { color: var(--b0); } #log .b1 { color: var(--b1); } #log .b2 { color: var(--b2); } #log .b3 { color: var(--b3); }
 #log .sys { color: var(--muted); }
 #log .err { color: var(--warn); }
 form { display: flex; gap: 8px; }
@@ -59,6 +60,7 @@ input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); padding:
     <button type="button" data-cmd="R" disabled><b>R</b><span>現在値</span></button>
     <button type="button" data-cmd="Q" disabled><b>Q</b><span>状態</span></button>
     <button type="button" data-cmd="I" disabled><b>I</b><span>識別情報</span></button>
+    <button type="button" data-cmd="L" disabled><b>L</b><span>一覧</span></button>
     <button type="button" data-cmd="T" disabled><b>T</b><span>日時を送る</span></button>
   </div>
   <div id="log" role="log" aria-live="polite"></div>
@@ -77,11 +79,14 @@ const dec = new TextDecoder();
 let device = null;
 let rx = null;
 let pending = "";
+const boards = new Map(); // board name -> colour class of lines relayed by the hub
 
 function log(text, cls) {
   const el = document.createElement("div");
   const t = new Date().toLocaleTimeString("ja-JP", { hour12: false });
-  el.className = cls;
+  const board = cls === "rx" && /^(SL[^|]*)\|/.exec(text);
+  if (board && !boards.has(board[1])) boards.set(board[1], `b${boards.size % 4}`);
+  el.className = board ? boards.get(board[1]) : cls;
   el.textContent = `${t} ${cls === "tx" ? "> " : ""}${text}`;
   const box = $("log");
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -147,7 +152,10 @@ async function connect() {
     return;
   }
   try {
-    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "SL" }], optionalServices: [NUS] });
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "SL" }, { namePrefix: "HUB" }],
+      optionalServices: [NUS],
+    });
     device.addEventListener("gattserverdisconnected", onDisconnected);
     log(`${device.name} に接続しています`, "sys");
     const server = await device.gatt.connect();
