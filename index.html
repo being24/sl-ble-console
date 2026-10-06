@@ -62,6 +62,7 @@ input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); padding:
     <button type="button" data-cmd="I" disabled><b>I</b><span>識別情報</span></button>
     <button type="button" data-cmd="L" disabled><b>L</b><span>一覧</span></button>
     <button type="button" data-cmd="T" disabled><b>T</b><span>日時を送る</span></button>
+    <button type="button" data-cmd="X" data-confirm="再起動しますか？ 記録中なら止めて保存してから再起動します。" disabled><b>X</b><span>再起動</span></button>
   </div>
   <div id="log" role="log" aria-live="polite"></div>
   <form id="send">
@@ -176,7 +177,10 @@ $("connect").addEventListener("click", () => {
   else connect();
 });
 document.querySelectorAll("[data-cmd]").forEach((b) =>
-  b.addEventListener("click", () => (b.dataset.cmd === "T" ? sendTime() : send(b.dataset.cmd))));
+  b.addEventListener("click", () => {
+    if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+    b.dataset.cmd === "T" ? sendTime() : send(b.dataset.cmd);
+  }));
 $("send").addEventListener("submit", (e) => {
   e.preventDefault();
   const line = $("line").value.trim();
