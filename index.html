@@ -4,17 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SL 操作</title>
+<script>
+try {
+  const savedTheme = localStorage.getItem("sl-ble-console-theme");
+  if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
+} catch (_) { /* Storage may be unavailable in private browsing. */ }
+</script>
 <style>
 :root {
   --bg: #f4f6f7; --panel: #ffffff; --fg: #1b2228; --muted: #5f6b76; --rule: #d6dce1;
   --accent: #1f6fb2; --accent-fg: #ffffff; --ok: #1d7a46; --warn: #b4521f; --rx: #1b2228; --tx: #1f6fb2; --b0: #1d7a46; --b1: #9a4d00; --b2: #6b3fa0; --b3: #a12d5a;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --sans: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) { :root {
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12161a; --panel: #1b2127; --fg: #e3e8ec; --muted: #97a3ae; --rule: #2c353e;
   --accent: #5aa9e6; --accent-fg: #0d1620; --ok: #5cc98a; --warn: #f0a25a; --rx: #e3e8ec; --tx: #5aa9e6; --b0: #5cc98a; --b1: #f0a25a; --b2: #b89af0; --b3: #f07aa8;
   color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161a; --panel: #1b2127; --fg: #e3e8ec; --muted: #97a3ae; --rule: #2c353e;
+  --accent: #5aa9e6; --accent-fg: #0d1620; --ok: #5cc98a; --warn: #f0a25a; --rx: #e3e8ec; --tx: #5aa9e6; --b0: #5cc98a; --b1: #f0a25a; --b2: #b89af0; --b3: #f07aa8;
+  color-scheme: dark;
+}
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; }
@@ -26,6 +38,12 @@ h1 { font-size: 1.15rem; margin: 0; flex: 1; }
 #state.on { color: var(--ok); }
 button { font: inherit; border: 1px solid var(--rule); background: var(--panel); color: var(--fg);
   border-radius: 8px; padding: 10px 12px; min-height: 44px; }
+.theme-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: .85rem; white-space: nowrap; }
+.theme-toggle-track { width: 32px; height: 20px; padding: 2px; border-radius: 10px; background: var(--rule); transition: background 180ms ease; }
+.theme-toggle-track::after { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--panel); transition: transform 180ms ease; }
+.theme-toggle[aria-checked="true"] .theme-toggle-track { background: var(--accent); }
+.theme-toggle[aria-checked="true"] .theme-toggle-track::after { transform: translateX(12px); }
+@media (prefers-reduced-motion: reduce) { .theme-toggle-track, .theme-toggle-track::after { transition: none; } }
 button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 button:disabled { opacity: .45; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -51,6 +69,7 @@ input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); padding:
   <header>
     <h1>SL 操作</h1>
     <span id="state">未接続</span>
+    <button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-label="ダークモード" aria-checked="false">ダーク<span class="theme-toggle-track" aria-hidden="true"></span></button>
     <button id="connect" class="primary" type="button">接続</button>
   </header>
   <div id="clock">日時は接続したときに自動で送ります</div>
@@ -75,6 +94,19 @@ const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // phone -> board
 const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // board -> phone
 const $ = (id) => document.getElementById(id);
+const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+function updateThemeSwitch() {
+  const theme = document.documentElement.dataset.theme;
+  $("theme-toggle").setAttribute("aria-checked", String(theme === "dark" || (!theme && colorScheme.matches)));
+}
+updateThemeSwitch();
+colorScheme.addEventListener("change", updateThemeSwitch);
+$("theme-toggle").addEventListener("click", () => {
+  const nextTheme = $("theme-toggle").getAttribute("aria-checked") === "true" ? "light" : "dark";
+  document.documentElement.dataset.theme = nextTheme;
+  try { localStorage.setItem("sl-ble-console-theme", nextTheme); } catch (_) { /* Keep the current page's choice. */ }
+  updateThemeSwitch();
+});
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 let device = null;
