@@ -167,8 +167,13 @@
     };
   }
 
+  /* グラフの履歴（系列ごとの配列）を、全部空にする。配列そのものは、そのまま使い続ける。 */
+  function clearHistory(hist) {
+    for (const k of Object.keys(hist)) hist[k].length = 0;
+  }
+
   const api = {
-    PROTO_VERSION, NCOEF, createFrameParser, createSurfaceTracker, decodeFrame,
+    PROTO_VERSION, NCOEF, createFrameParser, createSurfaceTracker, decodeFrame, clearHistory,
     SCALE_FLOOR, MIN_SLIDE_RATIO,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

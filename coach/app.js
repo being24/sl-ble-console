@@ -221,6 +221,11 @@
     dirty = true;
   });
   $("csv").addEventListener("click", saveCsv);
+  // グラフの履歴だけを消す。接続・CSV用のデータ・氷の基準・受信数の表示は、そのまま
+  $("resetGraph").addEventListener("click", () => {
+    Coach.clearHistory(hist);
+    dirty = true;
+  });
   window.addEventListener("resize", () => (dirty = true));
   reset();
   render();

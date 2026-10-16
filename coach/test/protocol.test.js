@@ -100,3 +100,13 @@ test("基準からの距離: 基準と同じなら小さく、離れれば大き
   assert.ok(Math.abs(t.push(win(1.6)) - 2.0) < 1e-6);
   assert.strictEqual(t.push(win(1.6, 3)), null);
 });
+
+test("clearHistory: 全系列を空にして、配列は同じものを使い続ける", () => {
+  const hist = { a: [1, 2, 3], b: [null, 4] };
+  const a = hist.a;
+  Coach.clearHistory(hist);
+  assert.deepStrictEqual(hist, { a: [], b: [] });
+  assert.strictEqual(hist.a, a);
+  hist.a.push(9);
+  assert.deepStrictEqual(a, [9]);
+});
