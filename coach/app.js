@@ -26,6 +26,16 @@
   let demoTimer = null;
   let lastSurf = null;
   let dirty = true;
+  // 動画: 撮影中は、動画の時刻（撮影開始からの ms）ごとに、同じフレームの系列を取っておく。再生中はこれをグラフに出す
+  const clipHist = Object.fromEntries(Object.keys(hist).map((k) => [k, []]));
+  const clipTimes = [];
+  const clipFrames = [];
+  const REPLAY_POINTS = 400; // 再生中に出す窓（20Hzで20秒）
+  let stream = null;
+  let recorder = null;
+  let clipStart = null; // 撮影が実際に始まった時刻（performance.now）。nullなら撮影していない
+  let videoBlob = null;
+  let replay = false;
 
   function push(arr, v) {
     arr.push(v);
@@ -47,6 +57,11 @@
         f.adcSaturated ? 1 : 0, f.recording ? 1 : 0, f.lateralRmsG, f.yawRmsDps, f.leftV, f.rightV, f.totalLoadV, f.lrBalance,
         lastSurf === null ? "" : lastSurf].join(","));
       ui.latest = f;
+      if (clipStart !== null) {
+        clipTimes.push(performance.now() - clipStart);
+        clipFrames.push(f);
+        for (const k of Object.keys(clipHist)) clipHist[k].push(hist[k][hist[k].length - 1]);
+      }
       dirty = true;
     } else if (f.type === "lfcc") {
       const d = tracker.push(f);
@@ -67,9 +82,17 @@
 
   function render() {
     requestAnimationFrame(render);
+    if (replay) dirty = true; // 再生位置は、フレームごとに変わる
     if (!dirty) return;
     dirty = false;
-    const f = ui.latest;
+    let h = hist;
+    let f = ui.latest;
+    if (replay) {
+      const n = Coach.lastIndexAtOrBefore(clipTimes, $("cam").currentTime * 1000);
+      const from = Math.max(0, n - REPLAY_POINTS + 1);
+      h = Object.fromEntries(Object.keys(clipHist).map((k) => [k, clipHist[k].slice(from, n + 1)]));
+      f = n >= 0 ? clipFrames[n] : null;
+    }
     if (f) {
       $("lrVal").textContent = f.loadValid ? (f.lrBalance >= 0 ? "右 " : "左 ") + Math.abs(f.lrBalance * 100).toFixed(0) + "%" : "—";
       $("barDot").style.left = (f.loadValid ? 50 + 50 * Math.max(-1, Math.min(1, f.lrBalance)) : 50) + "%";
@@ -89,11 +112,98 @@
     $("surfBadge").textContent = ui.surfCollecting ? `基準を取得中 ${Math.round(ui.surfProgress * 100)}%` : tracker.hasBaseline ? "基準あり" : "基準なし";
     $("surfBadge").className = "badge" + (ui.surfCollecting ? " warn" : tracker.hasBaseline ? " on" : "");
     $("stats").textContent = `受信 ${received}、欠落 ${lost}、読み直し ${parser ? parser.resyncs : 0}`;
-    CoachChart.drawLine($("cLr"), { values: hist.lr, sliding: hist.sliding, yMin: -1, yMax: 1, refs: [{ y: 0, label: "" }] });
-    CoachChart.drawLine($("cLat"), { values: hist.lat, sliding: hist.sliding, yMin: 0, refs: LATERAL_REFS });
-    CoachChart.drawLine($("cYaw"), { values: hist.yaw, sliding: hist.sliding, yMin: 0 });
-    CoachChart.drawLine($("cLoad"), { values: hist.load, sliding: hist.sliding, yMin: 0 });
-    CoachChart.drawLine($("cSurf"), { values: hist.surf, sliding: hist.sliding, yMin: 0 });
+    CoachChart.drawLine($("cLr"), { values: h.lr, sliding: h.sliding, yMin: -1, yMax: 1, refs: [{ y: 0, label: "" }] });
+    CoachChart.drawLine($("cLat"), { values: h.lat, sliding: h.sliding, yMin: 0, refs: LATERAL_REFS });
+    CoachChart.drawLine($("cYaw"), { values: h.yaw, sliding: h.sliding, yMin: 0 });
+    CoachChart.drawLine($("cLoad"), { values: h.load, sliding: h.sliding, yMin: 0 });
+    CoachChart.drawLine($("cSurf"), { values: h.surf, sliding: h.sliding, yMin: 0 });
+  }
+
+  async function toggleCamera() {
+    if (stream) {
+      if (recorder) recorder.stop();
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      replay = false;
+      $("videoBox").hidden = true;
+      $("vidRec").disabled = true;
+      $("vidLive").hidden = true;
+      $("vidSave").hidden = true;
+      $("camBtn").textContent = "カメラ";
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    } catch (e) {
+      $("log").textContent = "カメラを開けません: " + (e && e.message ? e.message : e);
+      return;
+    }
+    $("videoBox").hidden = false;
+    $("vidRec").disabled = false;
+    $("camBtn").textContent = "カメラを閉じる";
+    showLive();
+  }
+
+  function showLive() {
+    const v = $("cam");
+    replay = false;
+    v.removeAttribute("src");
+    v.srcObject = stream;
+    v.controls = false;
+    v.muted = true;
+    v.play();
+    $("vidBadge").textContent = "ライブ";
+    $("vidBadge").className = "badge";
+    $("vidLive").hidden = true;
+    dirty = true;
+  }
+
+  function toggleVideo() {
+    if (recorder) {
+      recorder.stop();
+      return;
+    }
+    if (!stream || typeof MediaRecorder === "undefined") {
+      $("log").textContent = "このブラウザは動画の撮影に対応していません";
+      return;
+    }
+    const chunks = [];
+    clipTimes.length = 0;
+    clipFrames.length = 0;
+    Coach.clearHistory(clipHist);
+    const rec = new MediaRecorder(stream);
+    recorder = rec;
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstart = () => (clipStart = performance.now());
+    rec.onstop = () => {
+      clipStart = null;
+      recorder = null;
+      $("vidRec").textContent = "動画を撮る";
+      if (!chunks.length || !stream) return;
+      videoBlob = new Blob(chunks, { type: rec.mimeType });
+      const v = $("cam");
+      v.srcObject = null;
+      v.src = URL.createObjectURL(videoBlob);
+      v.controls = true;
+      v.muted = false;
+      replay = true;
+      $("vidBadge").textContent = "再生（グラフは動画の時刻）";
+      $("vidBadge").className = "badge warn";
+      $("vidLive").hidden = false;
+      $("vidSave").hidden = false;
+    };
+    rec.start();
+    $("vidRec").textContent = "撮影停止";
+    $("vidBadge").textContent = "撮影中";
+    $("vidBadge").className = "badge warn";
+  }
+
+  function saveVideo() {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(videoBlob);
+    a.download = "coach_" + new Date().toISOString().replace(/[:.]/g, "-") + (videoBlob.type.includes("mp4") ? ".mp4" : ".webm");
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   function setConnected(on, text) {
@@ -221,6 +331,10 @@
     dirty = true;
   });
   $("csv").addEventListener("click", saveCsv);
+  $("camBtn").addEventListener("click", toggleCamera);
+  $("vidRec").addEventListener("click", toggleVideo);
+  $("vidLive").addEventListener("click", showLive);
+  $("vidSave").addEventListener("click", saveVideo);
   // グラフの履歴だけを消す。接続・CSV用のデータ・氷の基準・受信数の表示は、そのまま
   $("resetGraph").addEventListener("click", () => {
     Coach.clearHistory(hist);

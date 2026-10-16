@@ -172,8 +172,23 @@
     for (const k of Object.keys(hist)) hist[k].length = 0;
   }
 
+  /* 昇順の times のうち、ms 以下の最後の添字（無ければ -1）。動画の再生位置に対応するフレームを探す。 */
+  function lastIndexAtOrBefore(times, ms) {
+    let lo = 0;
+    let hi = times.length - 1;
+    let ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (times[mid] <= ms) {
+        ans = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return ans;
+  }
+
   const api = {
-    PROTO_VERSION, NCOEF, createFrameParser, createSurfaceTracker, decodeFrame, clearHistory,
+    PROTO_VERSION, NCOEF, createFrameParser, createSurfaceTracker, decodeFrame, clearHistory, lastIndexAtOrBefore,
     SCALE_FLOOR, MIN_SLIDE_RATIO,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

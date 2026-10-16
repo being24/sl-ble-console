@@ -33,6 +33,8 @@
   .note { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
   .big { font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .big small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  [hidden] { display: none !important; }
+  video { width: 100%; max-height: 50vh; background: #000; border-radius: 8px; display: block; }
   canvas { width: 100%; height: 130px; display: block; --fg: var(--fg); }
   .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--grid); color: var(--muted); }
@@ -57,10 +59,19 @@
   <button id="baseline" disabled>氷の基準を取る</button>
   <button id="resetGraph">グラフをリセット</button>
   <button id="csv" disabled>CSV保存</button>
+  <button id="camBtn">カメラ</button>
+  <button id="vidRec" disabled>動画を撮る</button>
+  <button id="vidLive" hidden>ライブに戻る</button>
+  <button id="vidSave" hidden>動画保存</button>
   <span id="recBadge" class="badge">SD 未記録</span>
   <span id="status">未接続</span>
 </header>
 <main>
+  <section id="videoBox" hidden>
+    <div class="row"><h2>動画</h2><span id="vidBadge" class="badge">ライブ</span></div>
+    <p class="note">「動画を撮る」で撮影を始め、止めるとその動画を再生します。再生中は、グラフと数値が動画の時刻に合います（撮影の開始が数百ms遅れることがあります）。</p>
+    <video id="cam" playsinline muted></video>
+  </section>
   <section>
     <div class="row"><h2>左右の荷重バランス</h2><span id="loadBadge" class="badge">荷重なし</span></div>
     <p class="note">右が+、左が−。足圧の位置は台ごと・日ごとに違い、出力も小さいため参考値。</p>
@@ -96,8 +107,8 @@
 </main>
 <div id="log"></div>
 <footer>パケット: <span id="stats">—</span></footer>
-<script src="coach.js?v=20261016b"></script>
-<script src="chart.js?v=20261016b"></script>
-<script src="app.js?v=20261016b"></script>
+<script src="coach.js?v=20261016c"></script>
+<script src="chart.js?v=20261016c"></script>
+<script src="app.js?v=20261016c"></script>
 </body>
 </html>

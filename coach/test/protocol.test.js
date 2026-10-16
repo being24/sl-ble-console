@@ -110,3 +110,13 @@ test("clearHistory: 全系列を空にして、配列は同じものを使い続
   hist.a.push(9);
   assert.deepStrictEqual(a, [9]);
 });
+
+test("lastIndexAtOrBefore: 再生位置以下の最後のフレーム。範囲外は -1 と末尾", () => {
+  const t = [0, 50, 100, 150];
+  assert.strictEqual(Coach.lastIndexAtOrBefore(t, -1), -1);
+  assert.strictEqual(Coach.lastIndexAtOrBefore(t, 0), 0);
+  assert.strictEqual(Coach.lastIndexAtOrBefore(t, 99), 1);
+  assert.strictEqual(Coach.lastIndexAtOrBefore(t, 100), 2);
+  assert.strictEqual(Coach.lastIndexAtOrBefore(t, 9999), 3);
+  assert.strictEqual(Coach.lastIndexAtOrBefore([], 10), -1);
+});
