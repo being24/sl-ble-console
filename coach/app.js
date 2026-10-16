@@ -139,6 +139,8 @@
       });
       await tx.startNotifications();
       setConnected(true, `接続中: ${device.name}`);
+      // 台のSDに残るファイルの作成・更新日時のために、いまの日時を送る（記録用の操作ページと同じ形式）
+      send("T " + Math.floor(Date.now() / 1000) + " " + -new Date().getTimezoneOffset());
     } catch (e) {
       setConnected(false, "接続できませんでした: " + (e && e.message ? e.message : e));
     }
