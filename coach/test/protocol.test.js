@@ -39,6 +39,15 @@ test("METRICSを読む", () => {
   assert.deepStrictEqual([m.lateralRmsG, m.yawRmsDps, m.leftV, m.rightV, m.totalLoadV, m.lrBalance], [1, -2, 0.5, 0, 1, -2]);
 });
 
+test("METRICSのフラグ: SDに記録中（bit 4）", () => {
+  const on = Uint8Array.from(METRICS);
+  on[5] = 0x13; // sliding | tared | recording
+  const { out } = collect([on, METRICS]);
+  assert.strictEqual(out[0].recording, true);
+  assert.strictEqual(out[0].sliding && out[0].tared, true);
+  assert.strictEqual(out[1].recording, false); // 0x03: bit 4 なし
+});
+
 test("LFCCを読む", () => {
   const { out } = collect([lfccFrame(12)]);
   assert.strictEqual(out[0].type, "lfcc");

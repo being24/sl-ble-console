@@ -20,6 +20,7 @@
   const FLAG_TARED = 1 << 1;
   const FLAG_LOAD_VALID = 1 << 2;
   const FLAG_ADC_SATURATED = 1 << 3;
+  const FLAG_RECORDING = 1 << 4; // 台のSDに記録中（Sで始めた20秒の間）
 
   function f32(view, off) {
     return view.getFloat32(off, true);
@@ -36,6 +37,7 @@
       tared: !!(flags & FLAG_TARED),
       loadValid: !!(flags & FLAG_LOAD_VALID),
       adcSaturated: !!(flags & FLAG_ADC_SATURATED),
+      recording: !!(flags & FLAG_RECORDING),
       lateralRmsG: f32(v, 6),
       yawRmsDps: f32(v, 10),
       leftV: f32(v, 14),

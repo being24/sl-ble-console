@@ -44,7 +44,7 @@
       push(hist.sliding, f.sliding);
       push(hist.surf, lastSurf);
       rows.push([Math.round(performance.now() - t0), f.seq, f.sliding ? 1 : 0, f.tared ? 1 : 0, f.loadValid ? 1 : 0,
-        f.adcSaturated ? 1 : 0, f.lateralRmsG, f.yawRmsDps, f.leftV, f.rightV, f.totalLoadV, f.lrBalance,
+        f.adcSaturated ? 1 : 0, f.recording ? 1 : 0, f.lateralRmsG, f.yawRmsDps, f.leftV, f.rightV, f.totalLoadV, f.lrBalance,
         lastSurf === null ? "" : lastSurf].join(","));
       ui.latest = f;
       dirty = true;
@@ -80,6 +80,8 @@
       $("loadVal").textContent = fmt(f.totalLoadV, 3);
       $("slideBadge").textContent = f.sliding ? "滑走中" : "静止";
       $("slideBadge").className = "badge" + (f.sliding ? " on" : "");
+      $("recBadge").textContent = f.recording ? "SD に記録中" : "SD 未記録";
+      $("recBadge").className = "badge" + (f.recording ? " warn" : "");
       $("satBadge").textContent = f.adcSaturated ? "頭打ち" : f.tared ? "0点合わせ済み" : "0点合わせ前";
       $("satBadge").className = "badge" + (f.adcSaturated ? " warn" : f.tared ? " on" : "");
     }
@@ -96,7 +98,7 @@
 
   function setConnected(on, text) {
     $("status").textContent = text;
-    for (const id of ["tare", "baseline", "csv"]) $(id).disabled = !on && id !== "csv";
+    for (const id of ["tare", "rec", "recStop", "baseline", "csv"]) $(id).disabled = !on && id !== "csv";
     $("csv").disabled = rows.length === 0;
     $("connect").textContent = on ? "切断" : "接続";
   }
@@ -158,7 +160,7 @@
   }
 
   function saveCsv() {
-    const head = "t_ms,seq,sliding,tared,load_valid,adc_saturated,lateral_rms_g,yaw_rms_dps,left_v,right_v,total_load_v,lr_balance,surface_distance";
+    const head = "t_ms,seq,sliding,tared,load_valid,adc_saturated,sd_recording,lateral_rms_g,yaw_rms_dps,left_v,right_v,total_load_v,lr_balance,surface_distance";
     const blob = new Blob([head + "\n" + rows.join("\n") + "\n"], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -188,7 +190,7 @@
       const left = sliding ? 0.12 + 0.03 * Math.sin(t * 1.3) : 0.0005;
       const right = sliding ? 0.2 + 0.03 * Math.cos(t * 0.8) : 0.0005;
       onFrame({
-        type: "metrics", seq: seq++ & 0xffff, sliding, tared: true, loadValid: sliding, adcSaturated: false,
+        type: "metrics", seq: seq++ & 0xffff, sliding, tared: true, loadValid: sliding, adcSaturated: false, recording: false,
         lateralRmsG: lat, yawRmsDps: sliding ? 6 + 4 * Math.abs(Math.sin(t)) : 0.2,
         leftV: left, rightV: right, totalLoadV: left + right + 0.05, lrBalance: (right - left) / (right + left),
       });
@@ -209,6 +211,8 @@
   $("connect").addEventListener("click", connect);
   $("demo").addEventListener("click", demo);
   $("tare").addEventListener("click", () => send("Z"));
+  $("rec").addEventListener("click", () => send("S")); // 20秒で自動で止まる。記録の開始は、画面を操作する人が決める
+  $("recStop").addEventListener("click", () => send("P"));
   $("baseline").addEventListener("click", () => {
     tracker.startBaseline();
     lastSurf = null;
