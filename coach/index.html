@@ -35,7 +35,12 @@
   .big small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 4px; }
   [hidden] { display: none !important; }
   video { width: 100%; max-height: 50vh; background: #000; border-radius: 8px; display: block; }
-  canvas { width: 100%; height: 130px; display: block; --fg: var(--fg); }
+  canvas { width: 100%; height: 130px; display: block; cursor: zoom-in; }
+  .lim { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .lim input { width: 5.5em; font: inherit; padding: 2px 4px; background: var(--btn); color: var(--btn-fg); border: 1px solid var(--grid); border-radius: 6px; }
+  section.zoom { position: fixed; inset: 0; z-index: 5; overflow: auto; border-radius: 0; }
+  section.zoom canvas { height: 60vh; cursor: zoom-out; }
+  label.link { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
   .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--grid); color: var(--muted); }
   .badge.on { color: #fff; background: var(--ok); border-color: transparent; }
@@ -62,7 +67,10 @@
   <button id="camBtn">カメラ</button>
   <button id="vidRec" disabled>動画を撮る</button>
   <button id="vidLive" hidden>ライブに戻る</button>
-  <button id="vidSave" hidden>動画保存</button>
+  <button id="vidSave" hidden>動画とCSVを保存</button>
+  <label class="link"><input type="checkbox" id="link" checked>動画とSDを連動</label>
+  <button id="theme">テーマ: 自動</button>
+  <span id="sdName" class="badge">SD ファイル —</span>
   <span id="recBadge" class="badge">SD 未記録</span>
   <span id="status">未接続</span>
 </header>
@@ -107,8 +115,8 @@
 </main>
 <div id="log"></div>
 <footer>パケット: <span id="stats">—</span></footer>
-<script src="coach.js?v=20261016c"></script>
-<script src="chart.js?v=20261016c"></script>
-<script src="app.js?v=20261016c"></script>
+<script src="coach.js?v=20261016d"></script>
+<script src="chart.js?v=20261016d"></script>
+<script src="app.js?v=20261016d"></script>
 </body>
 </html>

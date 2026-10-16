@@ -37,6 +37,16 @@
   let videoBlob = null;
   let replay = false;
 
+  const CSV_HEAD = "t_ms,seq,sliding,tared,load_valid,adc_saturated,sd_recording,lateral_rms_g,yaw_rms_dps,left_v,right_v,total_load_v,lr_balance,surface_distance";
+  function csvRow(t, f, surf) {
+    return [Math.round(t), f.seq, f.sliding ? 1 : 0, f.tared ? 1 : 0, f.loadValid ? 1 : 0, f.adcSaturated ? 1 : 0, f.recording ? 1 : 0,
+      f.lateralRmsG, f.yawRmsDps, f.leftV, f.rightV, f.totalLoadV, f.lrBalance, surf === null || surf === undefined ? "" : surf].join(",");
+  }
+  const linked = () => $("link").checked;
+  let prevRec = false;
+  let sdLast = ""; // 台が最後に知らせたSDのファイル名
+  let clipSd = null; // いま撮っている動画に対応するSDのファイル名
+
   function push(arr, v) {
     arr.push(v);
     if (arr.length > HISTORY) arr.shift();
@@ -53,10 +63,10 @@
       push(hist.load, f.totalLoadV);
       push(hist.sliding, f.sliding);
       push(hist.surf, lastSurf);
-      rows.push([Math.round(performance.now() - t0), f.seq, f.sliding ? 1 : 0, f.tared ? 1 : 0, f.loadValid ? 1 : 0,
-        f.adcSaturated ? 1 : 0, f.recording ? 1 : 0, f.lateralRmsG, f.yawRmsDps, f.leftV, f.rightV, f.totalLoadV, f.lrBalance,
-        lastSurf === null ? "" : lastSurf].join(","));
+      rows.push(csvRow(performance.now() - t0, f, lastSurf));
       ui.latest = f;
+      if (prevRec && !f.recording && recorder && linked()) stopVideo(); // SDの20秒が終わったら、動画も止める
+      prevRec = f.recording;
       if (clipStart !== null) {
         clipTimes.push(performance.now() - clipStart);
         clipFrames.push(f);
@@ -70,7 +80,13 @@
       ui.surfProgress = tracker.progress;
       dirty = true;
     } else if (f.type === "text") {
-      $("log").textContent = "台: " + f.text;
+      const t = f.text;
+      $("log").textContent = "台: " + t;
+      if (t.startsWith("S|")) {
+        setSdName(t.slice(2));
+        if (recorder) clipSd = t.slice(2);
+      } else if (t.startsWith("I|") && t.includes("file=")) setSdName(/file=([^,]*)/.exec(t)[1]);
+      else if (t.startsWith("X:") && recorder && linked()) stopVideo(); // SDが始まらなかったので、動画も止める
     }
   }
 
@@ -112,11 +128,61 @@
     $("surfBadge").textContent = ui.surfCollecting ? `基準を取得中 ${Math.round(ui.surfProgress * 100)}%` : tracker.hasBaseline ? "基準あり" : "基準なし";
     $("surfBadge").className = "badge" + (ui.surfCollecting ? " warn" : tracker.hasBaseline ? " on" : "");
     $("stats").textContent = `受信 ${received}、欠落 ${lost}、読み直し ${parser ? parser.resyncs : 0}`;
-    CoachChart.drawLine($("cLr"), { values: h.lr, sliding: h.sliding, yMin: -1, yMax: 1, refs: [{ y: 0, label: "" }] });
-    CoachChart.drawLine($("cLat"), { values: h.lat, sliding: h.sliding, yMin: 0, refs: LATERAL_REFS });
-    CoachChart.drawLine($("cYaw"), { values: h.yaw, sliding: h.sliding, yMin: 0 });
-    CoachChart.drawLine($("cLoad"), { values: h.load, sliding: h.sliding, yMin: 0 });
-    CoachChart.drawLine($("cSurf"), { values: h.surf, sliding: h.sliding, yMin: 0 });
+    CoachChart.drawLine($("cLr"), lim("cLr", { values: h.lr, sliding: h.sliding, yMin: -1, yMax: 1, refs: [{ y: 0, label: "" }] }));
+    CoachChart.drawLine($("cLat"), lim("cLat", { values: h.lat, sliding: h.sliding, yMin: 0, refs: LATERAL_REFS }));
+    CoachChart.drawLine($("cYaw"), lim("cYaw", { values: h.yaw, sliding: h.sliding, yMin: 0 }));
+    CoachChart.drawLine($("cLoad"), lim("cLoad", { values: h.load, sliding: h.sliding, yMin: 0 }));
+    CoachChart.drawLine($("cSurf"), lim("cSurf", { values: h.surf, sliding: h.sliding, yMin: 0 }));
+  }
+
+  // 台のファイル名は、<DEVICEIDの下4桁><連番4桁>.BIN。次の番号は、台が起動時に最大連番+1から振る
+  function setSdName(name) {
+    sdLast = name;
+    const m = /^(.{4})(\d{4})\.BIN$/i.exec(name);
+    $("sdName").textContent = m ? `SD 最新 ${name}／次 ${m[1]}${String(Number(m[2]) + 1).padStart(4, "0")}.BIN（予想）` : "SD ファイル —";
+  }
+
+  const CHARTS = ["cLr", "cLat", "cYaw", "cLoad", "cSurf"];
+  const limits = Object.fromEntries(CHARTS.map((id) => [id, { min: null, max: null }]));
+  function lim(id, base) {
+    const l = limits[id];
+    return Object.assign({}, base, l.min !== null ? { yMin: l.min } : {}, l.max !== null ? { yMax: l.max } : {});
+  }
+  for (const id of CHARTS) {
+    const c = $(id);
+    const box = document.createElement("div");
+    box.className = "lim";
+    box.innerHTML = '縦軸 下 <input type="number" step="any" placeholder="自動"> 上 <input type="number" step="any" placeholder="自動">';
+    const [lo, hi] = box.querySelectorAll("input");
+    const upd = () => {
+      limits[id].min = lo.value === "" ? null : Number(lo.value);
+      limits[id].max = hi.value === "" ? null : Number(hi.value);
+      dirty = true;
+    };
+    lo.addEventListener("input", upd);
+    hi.addEventListener("input", upd);
+    c.after(box);
+    c.addEventListener("click", () => {
+      c.closest("section").classList.toggle("zoom");
+      dirty = true;
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      for (const s of document.querySelectorAll("section.zoom")) s.classList.remove("zoom");
+      dirty = true;
+    }
+  });
+
+  const THEME_LABEL = { auto: "自動", light: "ライト", dark: "ダーク" };
+  let theme = "auto";
+  function setTheme(t) {
+    theme = t;
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.dataset.theme = t;
+    $("theme").textContent = "テーマ: " + THEME_LABEL[t];
+    try { localStorage.setItem("coachTheme", t); } catch (e) { /* 保存できなくても動く */ }
+    dirty = true;
   }
 
   async function toggleCamera() {
@@ -158,18 +224,16 @@
     dirty = true;
   }
 
-  function toggleVideo() {
-    if (recorder) {
-      recorder.stop();
-      return;
-    }
+  function startVideo() {
     if (!stream || typeof MediaRecorder === "undefined") {
-      $("log").textContent = "このブラウザは動画の撮影に対応していません";
+      $("log").textContent = "カメラが開いていないか、このブラウザは動画の撮影に対応していません";
       return;
     }
+    if (replay) showLive();
     const chunks = [];
     clipTimes.length = 0;
     clipFrames.length = 0;
+    clipSd = null;
     Coach.clearHistory(clipHist);
     const rec = new MediaRecorder(stream);
     recorder = rec;
@@ -198,12 +262,24 @@
     $("vidBadge").className = "badge warn";
   }
 
-  function saveVideo() {
+  function stopVideo() {
+    if (recorder) recorder.stop();
+  }
+
+  function download(blob, name) {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(videoBlob);
-    a.download = "coach_" + new Date().toISOString().replace(/[:.]/g, "-") + (videoBlob.type.includes("mp4") ? ".mp4" : ".webm");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
     a.click();
     URL.revokeObjectURL(a.href);
+  }
+
+  // 動画と、同じ時刻軸（動画の先頭からの ms）のCSVを、同じ名前で保存する。台のSDのファイル名が分かれば、名前に入れる
+  function saveClip() {
+    const base = "coach_" + new Date().toISOString().replace(/[:.]/g, "-") + (clipSd ? "_" + clipSd.replace(/\.BIN$/i, "") : "");
+    const body = clipFrames.map((f, i) => csvRow(clipTimes[i], f, clipHist.surf[i])).join("\n");
+    download(videoBlob, base + (videoBlob.type.includes("mp4") ? ".mp4" : ".webm"));
+    download(new Blob([CSV_HEAD.replace("t_ms", "video_ms") + "\n" + body + "\n"], { type: "text/csv" }), base + ".csv");
   }
 
   function setConnected(on, text) {
@@ -252,7 +328,8 @@
       await tx.startNotifications();
       setConnected(true, `接続中: ${device.name}`);
       // 台のSDに残るファイルの作成・更新日時のために、いまの日時を送る（記録用の操作ページと同じ形式）
-      send("T " + Math.floor(Date.now() / 1000) + " " + -new Date().getTimezoneOffset());
+      await send("T " + Math.floor(Date.now() / 1000) + " " + -new Date().getTimezoneOffset());
+      send("I"); // SDの最新のファイル名（file=）を知るため
     } catch (e) {
       setConnected(false, "接続できませんでした: " + (e && e.message ? e.message : e));
     }
@@ -270,13 +347,7 @@
   }
 
   function saveCsv() {
-    const head = "t_ms,seq,sliding,tared,load_valid,adc_saturated,sd_recording,lateral_rms_g,yaw_rms_dps,left_v,right_v,total_load_v,lr_balance,surface_distance";
-    const blob = new Blob([head + "\n" + rows.join("\n") + "\n"], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "coach_" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    download(new Blob([CSV_HEAD + "\n" + rows.join("\n") + "\n"], { type: "text/csv" }), "coach_" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv");
   }
 
   /* 台が無くても見た目を確かめるためのデモ。実機と同じ形のフレームオブジェクトを流す。 */
@@ -321,8 +392,27 @@
   $("connect").addEventListener("click", connect);
   $("demo").addEventListener("click", demo);
   $("tare").addEventListener("click", () => send("Z"));
-  $("rec").addEventListener("click", () => send("S")); // 20秒で自動で止まる。記録の開始は、画面を操作する人が決める
-  $("recStop").addEventListener("click", () => send("P"));
+  // 記録の開始は、画面を操作する人が決める。SDは20秒で自動で止まる。「連動」のときは、動画も同時に始まり、どちらかが止まれば両方止まる
+  $("rec").addEventListener("click", () => {
+    Coach.clearHistory(hist);
+    send("S");
+    if (linked() && stream && !recorder) startVideo();
+  });
+  $("recStop").addEventListener("click", () => {
+    send("P");
+    if (linked()) stopVideo();
+  });
+  $("vidRec").addEventListener("click", () => {
+    if (recorder) {
+      stopVideo();
+      if (linked() && prevRec) send("P");
+      return;
+    }
+    Coach.clearHistory(hist);
+    startVideo();
+    if (linked() && characteristicRx) send("S");
+  });
+  $("theme").addEventListener("click", () => setTheme(theme === "auto" ? "light" : theme === "light" ? "dark" : "auto"));
   $("baseline").addEventListener("click", () => {
     tracker.startBaseline();
     lastSurf = null;
@@ -332,15 +422,15 @@
   });
   $("csv").addEventListener("click", saveCsv);
   $("camBtn").addEventListener("click", toggleCamera);
-  $("vidRec").addEventListener("click", toggleVideo);
   $("vidLive").addEventListener("click", showLive);
-  $("vidSave").addEventListener("click", saveVideo);
+  $("vidSave").addEventListener("click", saveClip);
   // グラフの履歴だけを消す。接続・CSV用のデータ・氷の基準・受信数の表示は、そのまま
   $("resetGraph").addEventListener("click", () => {
     Coach.clearHistory(hist);
     dirty = true;
   });
   window.addEventListener("resize", () => (dirty = true));
+  try { setTheme(localStorage.getItem("coachTheme") || "auto"); } catch (e) { setTheme("auto"); }
   reset();
   render();
   if (location.search.includes("demo=1")) demo(); // 画面の確認用（?demo=1 で、台なしでデモを始める）
